@@ -1,5 +1,5 @@
 #' @importFrom SummarizedExperiment colData rowData assay assays
-stan_frs <- function(obj, model, contrasts, stanargs = list(iter=1e3, chains=4, cores=4), modelargs= list(debug=0, ranefs=2)){
+stan_frs <- function(obj, model, contrasts, stanargs = list(iter=1e3, chains=4, cores=4), modelargs= list(debug = 0, marginal = 0, ranefs = 2), method='hmc'){
     ## Need to fix zero-expression columns/groups
     obj <- obj[MAST::freq(obj)>0,]
     design_block <-  fixed_design_and_re(colData(obj), model)
@@ -33,12 +33,16 @@ stan_frs <- function(obj, model, contrasts, stanargs = list(iter=1e3, chains=4, 
     standat <- list(N=ncol(obj), Tf=ncol(design), G=G,
                     NposG=length(Ipos), x=design, v=v,
                     Ipos=Ipos, IposGI=IposGI, RIpos=RIpos,
-                    y=y, marginal=0,
-                    xr = xr, Nr = nlevels(block), rr = rr,
+                    y=y, xr = xr, Nr = nlevels(block), rr = rr,
                     Tr = ncol(xr))
     standat <- c(standat, modelargs)
     mfile <- system.file('stan', 'zeroModels_bisect.stan', package='ZeroInflatedMM')
     stanargs <- c(stanargs, list(file=mfile, data=standat))
-    do.call(rstan::stan, stanargs)
-    ## rstan::stan(mfile, data=standat, chains=4, cores=4, iter=1e3)
+    if(method=='hmc'){
+        do.call(rstan::stan, stanargs)
+    } else if(method=='vb'){
+        object <- stan_model(mfile)
+        rstan::vb(object, data=standat)
+    }
+    #X# rstan::stan(mfile, data=standat, chains=1, cores=1, iter=2e2)
 }

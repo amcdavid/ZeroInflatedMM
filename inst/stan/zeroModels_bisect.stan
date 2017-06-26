@@ -60,7 +60,8 @@ transformed data {
 }
 
 parameters {
-  matrix[2*Tf,G] beta_Tf_G; //fixed effect regression coefficients
+  //matrix[2*Tf,G] beta_Tf_G; //fixed effect regression coefficients
+  vector[2*Tf] beta_Tf_G[G]; //fixed effect regression coefficients
   
   vector<lower=0>[G] sigmaC_G; //dispersion
   // real<lower=0> gamaC; //hyper dispersion
@@ -73,7 +74,8 @@ parameters {
   // vector[2*Tr] mu_Tr; //random effect anchors
   //Whitened prior
   matrix[2*Tr,Nr*G] z_Tr_GNr;
-  cholesky_factor_corr[2*Tr] Sigma_Tr_G;//[G]; //variance components
+
+  cholesky_factor_corr[2*Tr] L_Sigma_Tr_G;//[G]; //variance components
   matrix<lower=0>[2*Tr,G] tau_Tr_G;
 }
 
@@ -81,7 +83,7 @@ transformed parameters {
     vector[2*Tr] beta_Tr_G_Nr[Nr,G];
     for(g in 1:G){
       for(r in 1:Nr){
-	beta_Tr_G_Nr[r,g,:] = (diag_pre_multiply(tau_Tr_G[:,g],Sigma_Tr_G) * z_Tr_GNr[:,r+(g-1)*Nr]);//'
+	beta_Tr_G_Nr[r,g,:] = (diag_pre_multiply(tau_Tr_G[:,g],L_Sigma_Tr_G) * z_Tr_GNr[:,r+(g-1)*Nr]);//'
 	}
       }
   //Cauchy 0, 2.5 for scale
@@ -103,21 +105,22 @@ model {
   int ripi;  //index into RIpos, points at current left-open end point
   //rii+1 points at current right-closed end point
   int ipos_ri_start; //index into Ipos/Y (RIpos[ripi])
-  int ipos_ri_end; //index into Ipos/Y (RIpos[ripi+1])	   
+  int ipos_ri_end; //index into Ipos/Y (RIpos[ripi+1])
+ 
 
   ripi = 0;
   if(debug>2){
     print("X dim", dims(x));	
-    print("beta dim", dims(beta_Tf_G));
+    //print("beta dim", dims(beta_Tf_G));
   }
   mu_Tf ~ normal(0, 4);
-  Sigma_Tr_G ~ lkj_corr_cholesky(2);
-  to_vector(tau_Tr_G) ~ normal(0, 5);
+  L_Sigma_Tr_G ~ lkj_corr_cholesky(2);
+  to_vector(tau_Tr_G) ~ normal(0, 4);
   to_vector(z_Tr_GNr) ~ normal(0,1);
-  for(i in 1:Tf){
+  /*for(i in 1:Tf){
     beta_Tf_G[i,] ~ normal(mu_Tf[i], sigma_Tf);
-  }
-  sigmaC_G ~ gamma(gamaC, gambC);
+    }*/
+    sigmaC_G ~ gamma(gamaC, gambC);
   //mu_Tr ~ normal(0, 4);
   /* gamaC ~ student_t(6, 1, 2);
      gambC ~ student_t(6, 1, 2); */
@@ -129,17 +132,22 @@ model {
     int ipos[IposGI[g+1]- IposGI[g]];
     //index for random effects
 
-    // Because local variable must precede all statements, these are over-allocated
     iposStart = IposGI[g];
     iposEnd = IposGI[g+1]-1;
     ipos = Ipos[iposStart:iposEnd];
-    if(debug>1){
+    if(debug>0){
       print("G=", g, "; iposStart=", iposStart, "; iposEnd=", iposEnd, "; ipos=", Ipos[iposStart:iposEnd]);
       print("dim(beta_Tr_G_Nr)=", dims(beta_Tr_G_Nr));
     }
 
-    etaD = x*beta_Tf_G[1:Tf,g];
-    etaC = (x[ipos,:]*beta_Tf_G[c_Tf:(2*Tf),g]);
+    //old style
+    beta_Tf_G[g] ~ normal(mu_Tf, sigma_Tf);
+    etaD = x*beta_Tf_G[g][1:Tf];
+    etaC = (x[ipos,:]*beta_Tf_G[g][c_Tf:(2*Tf)]);
+    
+    
+    //etaD = x*beta_Tf_G[1:Tf,g];
+    //etaC = (x[ipos,:]*beta_Tf_G[c_Tf:(2*Tf),g]);
 
     //Init random effect
     if(ranefs>0){
@@ -152,19 +160,24 @@ model {
 	ipos_ri_start = RIpos[ripi];
 	ipos_ri_end = RIpos[ripi+1]-1;
 	if(debug>0){
-	  print("ipos_ri_start=", ipos_ri_start, " ; ipos_ri_end=", ipos_ri_end);
+	  print("ipos_ri_start=", ipos_ri_start, 
+	  " ; ipos_ri_end=", ipos_ri_end, 
+	  " ; ipos_ri_start-iposStart+1=", ipos_ri_start-iposStart+1, 
+	  " ; rposStart=", rposStart,
+	  " ; rposEnd=", rposEnd);
+	}
+	if(debug>1){
+	  print("y[(ipos_ri_start):(ipos_ri_end)]=", y[(ipos_ri_start):(ipos_ri_end)],
+	  "; Ipos[ipos_ri_start:ipos_ri_end]=", Ipos[ipos_ri_start:ipos_ri_end]);
 	}
 	    
 	eta_tmp = etaD[rposStart:rposEnd];
-	    
-	//beta_Tr_G_Nr[r, g] ~ multi_normal_cholesky(zero_Tr, Sigma_Tr_G); //[g]);
-	//beta_Tr_G_Nr[r, g] ~ multi_normal_cholesky(zero_Tr, quad_form_diag(Sigma_Tr_G, tau_Tr_G[:,g])); //[g]);
 	etaD[rposStart:rposEnd] = eta_tmp + xr[rposStart:rposEnd,:]*beta_Tr_G_Nr[r,g,1:Tr];
 	    
 	if((ipos_ri_start <= ipos_ri_end) && (ranefs>1)){ //non-empty group
 	  // ipos_ri_start-iposStart+1: start point in etaC for this group.
 	  eta_tmp[1:(ipos_ri_end-ipos_ri_start+1)] = etaC[(ipos_ri_start-iposStart+1):(ipos_ri_end-iposStart+1)];
-	  etaC[(ipos_ri_start-iposStart+1):(ipos_ri_end-iposStart+1)] =  xr[Ipos[ipos_ri_start:ipos_ri_end],]*beta_Tr_G_Nr[r,g,c_Tr:(2*Tr)];
+	  etaC[(ipos_ri_start-iposStart+1):(ipos_ri_end-iposStart+1)] =eta_tmp[1:(ipos_ri_end-ipos_ri_start+1)]+  xr[Ipos[ipos_ri_start:ipos_ri_end],]*beta_Tr_G_Nr[r,g,c_Tr:(2*Tr)];
 	}
 	ripi = ripi + 1;
       }
@@ -174,7 +187,10 @@ model {
     }
     v[g] ~ bernoulli_logit(etaD);
     // print("len(y)= ", num_elements(y[iposStart:iposEnd]), "; len(etaC)=", num_elements(etaC[Ipos[iposStart:iposEnd]]), "; len(sigma)=", num_elements(sigmaC_G[g]));
-    //target += normal_lpdf( (y[iposStart:iposEnd]) | (etaC[Ipos[iposStart:iposEnd]]) , sigmaC_G[g]);
     y[iposStart:iposEnd] ~ normal(etaC, sigmaC_G[g]);
   }
+}
+generated quantities {
+  corr_matrix[2*Tr] Sigma_Tr;
+  Sigma_Tr = multiply_lower_tri_self_transpose(L_Sigma_Tr_G);
 }
