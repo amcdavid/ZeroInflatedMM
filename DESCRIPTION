@@ -1,0 +1,25 @@
+Package: ZeroInflatedMM
+Title: Multi-level models and simulations for zero-inflated data
+Version: 0.10
+Authors@R: person("Andrew", "McDavid", email = "Andrew_McDavid@urmc.rochester.edu", role = c("aut", "cre"))
+Description: Facilities to simulate and fit zero-inflated data.
+Depends: R (>= 3.4.0)
+License: GPL (>= 2)
+Encoding: UTF-8
+LazyData: true
+Suggests: testthat
+Imports: assertthat,
+    mvtnorm,
+    stats,
+    Hmisc,
+    MAST,
+    SummarizedExperiment
+Depends: rstan
+RoxygenNote: 6.0.1
+Collate: 
+    'FittedRanef.R'
+    'Fitters.R'
+    'ObsLikelihood.R'
+    'HyperParams.R'
+    'RanefLikelihood.R'
+    'Simulate.R'
