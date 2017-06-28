@@ -13,7 +13,8 @@ Imports: assertthat,
     stats,
     Hmisc,
     MAST,
-    SummarizedExperiment
+    SummarizedExperiment,
+    data.table
 Depends: rstan
 RoxygenNote: 6.0.1
 Collate: 

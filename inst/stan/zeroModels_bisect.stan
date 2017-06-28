@@ -55,8 +55,17 @@ transformed data {
   int c_Tf = (Tf+1);
   real<lower=0> gamaC = 1.5;
   real<lower=0> gambC = .1;
-  real<lower=0> sigma_Tf = 4;
+  real<lower=0> sigma_normal_default = 4;
+  vector[2*Tf] sigma_Tf;
   vector[2*Tr] zero_Tr = rep_vector(0.0, Tr*2);
+  if(Tf>0){
+    sigma_Tf[1] = 4;
+  }
+  if(Tf>1){
+    sigma_Tf[2:Tf] = rep_vector(sigma_normal_default, Tf-1);
+  }
+  sigma_Tf[c_Tf:(2*Tf)] = rep_vector(sigma_normal_default, Tf);
+
 }
 
 parameters {
@@ -66,7 +75,8 @@ parameters {
   vector<lower=0>[G] sigmaC_G; //dispersion
   // real<lower=0> gamaC; //hyper dispersion
   // real<lower=0> gambC;
-
+  vector<lower=0>[2*Tr] sigma_tau;
+  
   vector[2*Tf] mu_Tf; //fixed effect anchors
   //vector<lower=0.01>[2*Tf] sigma_Tf; //fixed effect variance
 
@@ -113,11 +123,15 @@ model {
     print("X dim", dims(x));	
     //print("beta dim", dims(beta_Tf_G));
   }
-  mu_Tf ~ normal(0, 4);
+  mu_Tf ~ normal(0, sigma_normal_default);
   L_Sigma_Tr_G ~ lkj_corr_cholesky(2);
-  to_vector(tau_Tr_G) ~ normal(0, 4);
   to_vector(z_Tr_GNr) ~ normal(0,1);
-  /*for(i in 1:Tf){
+
+  //Prior for random effect scale
+  for(i in 1:(2*Tr)){
+    tau_Tr_G[i,:] ~ student_t(4, 0, sigma_tau[i]);
+  }
+  /*for(i in 1:(2*Tf)){
     beta_Tf_G[i,] ~ normal(mu_Tf[i], sigma_Tf);
     }*/
     sigmaC_G ~ gamma(gamaC, gambC);
