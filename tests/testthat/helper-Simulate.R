@@ -1,7 +1,7 @@
 N = 6
 Nc = 5
 Ntot = N*Nc
-X = cbind(matrix(1, nrow = Ntot), rep(c(0, 1), each = Nc, times = N/2))
+X = cbind(matrix(1, nrow = Ntot), treat=rep(c(0, 1), each = Nc, times = N/2))
 beta = c(1,1)
 clusters = gl(N, Nc)
 # Using indicator matrices

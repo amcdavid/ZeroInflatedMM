@@ -4,10 +4,11 @@ context('Test metrics')
 ngene = 5
 neff = 1
 fixef = -2:2
+pid = seq_len(ngene*neff)
 
-frf = FittedRanefScalar(fixef, fixef_se = rep(0, ngene*neff), sd = rep(1, ngene*neff), fdr_q=c(0, 0, 0, 1, 1), method='test', walltime=1, coretime=4)
+frf = FittedRanefScalar(fixef, fixef_se = rep(0, ngene*neff), sd = rep(1, ngene*neff), fdr_q=c(0, 0, 0, 1, 1), primerid = pid, method='test', walltime=1, coretime=4)
 
-truthrf = TruthRanefScalar(fixef, sd = rep(1, ngene*neff))
+truthrf = TruthRanefScalar(fixef, sd = rep(1, ngene*neff), primerid = pid)
 
 test_that('Can create FitteRanef', {
     expect_is(frf, 'FittedRanefScalar')

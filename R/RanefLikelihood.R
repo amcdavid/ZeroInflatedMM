@@ -53,11 +53,13 @@ RandomDesignMatrix = function(Z, Z_list, f, cluster_idx){
 }
 
 fixed_design_and_re <- function(mf, model){
-    design <- model.matrix(lme4::nobars(model),data=mf)
+    mf = as.data.frame(mf)
+    lf <- lme4::lFormula(model, data=mf, control=lmerControl(check.formula.LHS = "ignore"))
+    design <- lf$X
+    assert_that(length(lf$reTrms$flist)==1)
+    # we could/should use reTerms for the random design matrix; this would require using sparse matrices in stan
+    block <- as.factor(lf$reTrms$flist[[1]])
     bars <- lme4::findbars(model)
-    assert_that(length(bars)==1)
-    bar_var <- deparse(bars[[1]][[3]])
-    block <- as.factor(mf[,bar_var])
     r_form <- as.formula(paste0('~', deparse(lme4::subbars(bars[[1]][[2]]))))
     r_design <- model.matrix(r_form, mf)
     list(design=design, block=block, r_design=r_design)
