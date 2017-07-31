@@ -4,6 +4,11 @@ Y[!upper.tri(Y)] <- 0
 obj <- MAST::FromMatrix(Y, cData = data.frame(X = 1, g=gl(4, 2)))
 model <- ~1|g
 
-test_that('Can fit stylized model', {
-    test <- stan_frs(obj, model, modelargs = list(debug=0, marginal=1, ranefs=1), stanargs = list(iter=500, chains=1))
+test_that('Can compile model', {
+    rstan::stanc(stan_modelfile)  
 })
+
+test_that('Can fit stylized model', {
+    test <- fit_FxCHM(obj, model, model_control = fxc_model_control(debug = 0, marginal = 0, ranefs = 0, center = FALSE), stan_control = fxc_stan_control(iter=2000, chains=1, control=list(max_treedepth = 12)), contrasts = '(Intercept)', returnfit = TRUE)
+})
+

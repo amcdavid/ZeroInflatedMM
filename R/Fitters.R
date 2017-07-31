@@ -1,5 +1,29 @@
+fxc_model_control = function(debug = 0, marginal = 1, ranefs = 2, center = TRUE){
+    list(pass_as_data = llist(debug, marginal, ranefs), other = llist(center))    
+}
+
+fxc_stan_control = function(iter = 1e3, chains = 4, cores = 4, ...){
+    llist(iter, chains, cores, ...)   
+}
+
+stan_modelfile = system.file('stan', 'zeroModels_bisect.stan', package='ZeroInflatedMM')
+
+
+#' Fit a zero-inflated hierarchical mixed model
+#' 
+#' @param obj SingleCellAssay
+#' @param model formula
+#' @param contrasts contrasts to test
+#' @param stan_control arguments to pass to stan
+#' @param model_control arguments to pass to model
+#' @param method 
+#' @param returnfit return the fit (object of class FxCHM, extending stanfit-class)
+#'
 #' @importFrom SummarizedExperiment colData rowData assay assays
-stan_frs <- function(obj, model, contrasts, stanargs = list(iter = 1e3, chains = 4, cores = 4), modelargs= list(debug = 0, marginal = 1, ranefs = 2), method = 'hmc', returnfit = FALSE, center = FALSE){
+#' @importClassesFrom rstan stanfit
+fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), model_control= fxc_model_control(), method = c('hmc', 'vb'), returnfit = FALSE){
+    ## Extract control args
+    control = model_control$other
     ## Need to fix zero-expression columns/groups
     obj <- obj[MAST::freq(obj)>0,]
     design_block <-  fixed_design_and_re(colData(obj), model)
@@ -12,14 +36,17 @@ stan_frs <- function(obj, model, contrasts, stanargs = list(iter = 1e3, chains =
     Ipos <- unlist(IposArr)
     IposGI <- c(1, cumsum(sapply(IposArr, length))+1)
     yraw <- assay(obj)
-    if(center){
-        yraw <- apply(yraw, 2, function(x){
+    if(control$center){
+        yraw <- apply(yraw, 1, function(x){
             yi <- which(abs(x)>0)
-            x[yi] <- scale(x[yi])
+            if(length(yi)>0){
+            x[yi] <- scale(x[yi], scale = length(yi)>1)
+            }
             x
         })
     }
     y <- t(yraw)[t(v)==1]
+    assert_that(!any(is.na(y)))
     xr <- design_block$r_design
     
     ## Left closed, right open intervals
@@ -40,23 +67,24 @@ stan_frs <- function(obj, model, contrasts, stanargs = list(iter = 1e3, chains =
                     Ipos=Ipos, IposGI=IposGI, RIpos=RIpos,
                     y=y, xr = xr, Nr = nlevels(block), rr = rr,
                     Tr = ncol(xr))
-    standat <- c(standat, modelargs)
-    mfile <- system.file('stan', 'zeroModels_bisect.stan', package='ZeroInflatedMM')
-
+    standat <- c(standat, model_control$pass_as_data)
     if(method=='hmc'){
-        stanargs <- c(stanargs, list(file=mfile, data=standat))
-        fit <- do.call(rstan::stan, stanargs)
+        stan_control <- c(stan_control, list(file=stan_modelfile, data=standat))
+        fit <- do.call(rstan::stan, stan_control)
     } else if(method=='vb'){
-        object <- stan_model(mfile)
-        stanargs <- c(stanargs, list(object=object, data=standat))
-        fit <- do.call(rstan::vb, stanargs)
+        object <- stan_model(stan_modelfile)
+        stan_control <- c(stan_control, list(object=object, data=standat))
+        fit <- do.call(rstan::vb, stan_control)
     }
+    
     contr_fixef <- which(colnames(design) %like% contrasts)
     contr_ranef <- which(colnames(xr) %like% contrasts)
     fixef <- makeParTable(fit, 'beta_Tf_G')
     ranef <- makeParTable(fit, 'tau_Tr_G')
     t2 <- proc.time()
     st <- t2-t1
+    browser()
+    # Figure out how to get a bayesian FDR
     bound <- fixef[j %in% c(2, 4),.(pval=pnorm(abs(Zrob), lower.tail=FALSE)*2), keyby=list(i,j)]
     bound[,fdr:=p.adjust(pval, method='fdr')]
     bound <- bound[,.(minfdr=min(fdr)),keyby=i]
@@ -67,6 +95,18 @@ stan_frs <- function(obj, model, contrasts, stanargs = list(iter = 1e3, chains =
                       coretime = st['user.self'],
                       method = method,
                       obs_used = seq_len(ncol(obj)))
+}
+
+setClass('FxCHM', contains = 'stanfit', 
+         slots = list(design = 'data.frame', 
+                      ismarginal = 'logical', 
+                      family = 'family',
+                      family_zero = 'family',
+                      formula = 'formula'))
+
+##' @importFrom stats gaussian binomial
+FxCHM = function(stanfit, design, ismarginal, family = gaussian(), family_zero = binomial(), formula){
+    new('FxCHM', stanfit, design=design, ismarginal = ismarginal, family = family, family_zero = family_zero)
 }
 
 #' @import data.table
@@ -88,4 +128,10 @@ makeParTable <- function(fit, pname, rename){
     dt <- data.table(pgrid, ss[,c('mean', "sd", "2.5%", "97.5%")], rename)
     dt[,Zrob:=mean/abs((`97.5%`-`2.5%`)*.5)]
     dt[,Z:=mean/sd]
+}
+
+nonParEstimate <- function(fit, contrast0, contrast1){
+    # get posterior samples of means for each group
+    list_of_draws <- extract(fit)
+    print(names(list_of_draws))
 }

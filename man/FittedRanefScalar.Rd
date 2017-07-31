@@ -4,8 +4,8 @@
 \alias{FittedRanefScalar}
 \title{Construct a Fitted random effect object for a scalar parameter of interest}
 \usage{
-FittedRanefScalar(fixef, fixef_se, sd, fdr_q, method, walltime, coretime,
-  obs_used = NA)
+FittedRanefScalar(fixef, fixef_se, sd, fdr_q, primerid = NA_character_,
+  converge = NA, method, walltime, coretime, obs_used = NA)
 }
 \arguments{
 \item{fixef}{vector of fixed effects, eg one per gene}
@@ -25,7 +25,7 @@ FittedRanefScalar(fixef, fixef_se, sd, fdr_q, method, walltime, coretime,
 \item{obs_used}{}
 }
 \value{
-list
+data.table
 }
 \description{
 Construct a Fitted random effect object for a scalar parameter of interest

@@ -42,10 +42,12 @@ data {
   vector[NposG] y;
 
   // DEBUG
+  
   int<lower=0, upper=3> debug;
 
   // Random effects
   int<lower=0, upper=2> ranefs;
+  
 }
 
 
@@ -204,7 +206,10 @@ model {
     y[iposStart:iposEnd] ~ normal(etaC, sigmaC_G[g]);
   }
 }
+
 generated quantities {
   corr_matrix[2*Tr] Sigma_Tr;
+  
   Sigma_Tr = multiply_lower_tri_self_transpose(L_Sigma_Tr_G);
+  
 }
