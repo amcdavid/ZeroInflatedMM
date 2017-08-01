@@ -1,10 +1,3 @@
-/*
-  Models:
-  1) Marginal model
-  2) Reduced rank VGLM
-  3) factor analytic GLM
-*/
- 
 data {
   // FIXED effects
   int<lower=0> N; //number of obs
@@ -42,12 +35,13 @@ data {
   vector[NposG] y;
 
   // DEBUG
-  
   int<lower=0, upper=3> debug;
 
-  // Random effects
+  // Random effects-- 0 none; 1 discrete; 2 - discrete/continuous
   int<lower=0, upper=2> ranefs;
   
+  // how adaptive are the random effects?
+    real<lower=0> prior_precision;
 }
 
 
@@ -57,17 +51,22 @@ transformed data {
   int c_Tf = (Tf+1);
   real<lower=0> gamaC = 1.5;
   real<lower=0> gambC = .1;
-  real<lower=0> sigma_normal_default = 4;
+  real<lower=0> fixef_intercept_sigma_default = 10/prior_precision;
+  real<lower=0> fixef_sigma_default = 3/prior_precision;
+  real<lower=0> ranef_sigma_default = 1/prior_precision;
+
+  
   vector[2*Tf] sigma_Tf;
   vector[2*Tr] zero_Tr = rep_vector(0.0, Tr*2);
   if(Tf>0){
-    sigma_Tf[1] = 4;
+    sigma_Tf[1] = fixef_intercept_sigma_default;
+    sigma_Tf[c_Tf] = fixef_intercept_sigma_default;
   }
   if(Tf>1){
-    sigma_Tf[2:Tf] = rep_vector(sigma_normal_default, Tf-1);
+    sigma_Tf[2:Tf] = rep_vector(fixef_sigma_default, Tf-1);
+    sigma_Tf[(c_Tf+1):(2*Tf)] = rep_vector(fixef_sigma_default, Tf-1);
   }
-  sigma_Tf[c_Tf:(2*Tf)] = rep_vector(sigma_normal_default, Tf);
-
+ 
 }
 
 parameters {
@@ -77,8 +76,11 @@ parameters {
   vector<lower=0>[G] sigmaC_G; //dispersion
   // real<lower=0> gamaC; //hyper dispersion
   // real<lower=0> gambC;
-  vector<lower=0>[2*Tr] sigma_tau;
   
+  // cluster-level random effects
+  vector<lower=0>[2*Tr] sigma_tau;
+  vector<lower=0>[2*Tr] mu_tau;
+
   vector[2*Tf] mu_Tf; //fixed effect anchors
   //vector<lower=0.01>[2*Tf] sigma_Tf; //fixed effect variance
 
@@ -88,11 +90,17 @@ parameters {
   matrix[2*Tr,Nr*G] z_Tr_GNr;
 
   cholesky_factor_corr[2*Tr] L_Sigma_Tr_G;//[G]; //variance components
-  matrix<lower=0>[2*Tr,G] tau_Tr_G;
+  matrix<lower=0>[2*Tr,G] z_tau_Tr_G;
 }
 
 transformed parameters {
     vector[2*Tr] beta_Tr_G_Nr[Nr,G];
+    matrix<lower=0>[2*Tr,G] tau_Tr_G;
+
+    
+     for(i in 1:(2*Tr)){
+        tau_Tr_G[i,:] = z_tau_Tr_G[i,:]*sigma_tau[i]+mu_tau[i];
+    }
     for(g in 1:G){
       for(r in 1:Nr){
 	beta_Tr_G_Nr[r,g,:] = (diag_pre_multiply(tau_Tr_G[:,g],L_Sigma_Tr_G) * z_Tr_GNr[:,r+(g-1)*Nr]);//'
@@ -125,14 +133,15 @@ model {
     print("X dim", dims(x));	
     //print("beta dim", dims(beta_Tf_G));
   }
-  mu_Tf ~ normal(0, sigma_normal_default);
+  mu_Tf ~ normal(0, sigma_Tf);
   L_Sigma_Tr_G ~ lkj_corr_cholesky(2);
   to_vector(z_Tr_GNr) ~ normal(0,1);
-
+  
   //Prior for random effect scale
-  for(i in 1:(2*Tr)){
-    tau_Tr_G[i,:] ~ student_t(4, 0, sigma_tau[i]);
-  }
+  mu_tau ~ normal(0, ranef_sigma_default);
+  sigma_tau ~ normal(0, ranef_sigma_default);
+  to_vector(z_tau_Tr_G) ~ normal(0, 1);
+  
   /*for(i in 1:(2*Tf)){
     beta_Tf_G[i,] ~ normal(mu_Tf[i], sigma_Tf);
     }*/
@@ -199,17 +208,22 @@ model {
       }
     }
     if(marginal==1){
-      etaC = etaC .* (1+exp(-etaD[ipos]));
+        int min_n = min(num_elements(etaC), 10);
+        // vector[num_elements(etaC)] EV;
+        // EV = exp(etaD[ipos]);
+      if(debug > 1)  print("etaC: ", etaC[1:min_n], ". etaD: ", etaD[ipos[1:min_n]]);
+      // etaC = E(U)*E(V)
+      // 1 - P(V) = (1 + eD)/(1+eD) - eD/(1+eD) = 1/(1+eD) = (e(-d))/(
+      etaC = etaC ./ (1+exp(etaD[ipos]));
+      if(debug > 1)  print("etaC: ", etaC[1:min_n]);
+
     }
     v[g] ~ bernoulli_logit(etaD);
     // print("len(y)= ", num_elements(y[iposStart:iposEnd]), "; len(etaC)=", num_elements(etaC[Ipos[iposStart:iposEnd]]), "; len(sigma)=", num_elements(sigmaC_G[g]));
     y[iposStart:iposEnd] ~ normal(etaC, sigmaC_G[g]);
   }
 }
-
 generated quantities {
   corr_matrix[2*Tr] Sigma_Tr;
-  
   Sigma_Tr = multiply_lower_tri_self_transpose(L_Sigma_Tr_G);
-  
 }

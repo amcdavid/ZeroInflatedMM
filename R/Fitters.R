@@ -1,9 +1,9 @@
-fxc_model_control = function(debug = 0, marginal = 1, ranefs = 2, center = TRUE){
-    list(pass_as_data = llist(debug, marginal, ranefs), other = llist(center))    
+fxc_model_control = function(debug = 0, marginal = 1, ranefs = 2, prior_precision = 1, center = TRUE){
+    list(pass_as_data = llist(debug, marginal, ranefs, prior_precision), other = llist(center))    
 }
 
-fxc_stan_control = function(iter = 1e3, chains = 4, cores = 4, ...){
-    llist(iter, chains, cores, ...)   
+fxc_stan_control = function(iter, include = FALSE, pars = c('z_Tr_GNr', 'z_tau_Tr_G', 'L_Sigma_Tr_G'), ...){
+    llist(iter, include, pars, ...)   
 }
 
 stan_modelfile = system.file('stan', 'zeroModels_bisect.stan', package='ZeroInflatedMM')
@@ -50,7 +50,7 @@ fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), 
     xr <- design_block$r_design
     
     ## Left closed, right open intervals
-    rr <- c(findInterval(levels(block), block, left.open = TRUE), length(block))+1
+    rr <- c(findInterval(seq_along(levels(block)), as.numeric(block), left.open = TRUE), length(block))+1
     RIpos <- list()
     for (i in seq_len(G)){
         slice <- IposArr[[i]]
@@ -60,9 +60,9 @@ fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), 
     #Left closed, right open endpoints of y and Ipos for each group
     RIpos <- unlist(RIpos)
     assert_that(all(sort(RIpos) == RIpos), #non decreasing
-                length(RIpos)==(nlevels(block)+1)*G, #length of G*(B+1)
-                RIpos[length(RIpos)]==(length(Ipos)+1)) #last endpoint is right open
-    standat <- list(N=ncol(obj), Tf=ncol(design), G=G,
+                length(RIpos) == (nlevels(block) + 1)*G, #length of G*(B+1)
+                RIpos[length(RIpos)] == (length(Ipos) + 1)) #last endpoint is right open
+    standat <- list(N = ncol(obj), Tf=ncol(design), G=G,
                     NposG=length(Ipos), x=design, v=v,
                     Ipos=Ipos, IposGI=IposGI, RIpos=RIpos,
                     y=y, xr = xr, Nr = nlevels(block), rr = rr,
@@ -83,20 +83,21 @@ fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), 
     ranef <- makeParTable(fit, 'tau_Tr_G')
     t2 <- proc.time()
     st <- t2-t1
-    browser()
     # Figure out how to get a bayesian FDR
     bound <- fixef[j %in% c(2, 4),.(pval=pnorm(abs(Zrob), lower.tail=FALSE)*2), keyby=list(i,j)]
     bound[,fdr:=p.adjust(pval, method='fdr')]
     bound <- bound[,.(minfdr=min(fdr)),keyby=i]
-    FittedRanefScalar(fixef = fixef[j==2,mean], fixef_se=fixef[j==2,sd],
+    ret = FittedRanefScalar(fixef = fixef[j==2,mean], fixef_se=fixef[j==2,sd],
                       fdr =bound[,minfdr],
                       sd = ranef[i==1, mean],
                       walltime = st['elapsed'],
                       coretime = st['user.self'],
                       method = method,
                       obs_used = seq_len(ncol(obj)))
+    if(returnfit) return(structure(ret, fit=fit)) else ret
 }
 
+setOldClass('family')
 setClass('FxCHM', contains = 'stanfit', 
          slots = list(design = 'data.frame', 
                       ismarginal = 'logical', 
