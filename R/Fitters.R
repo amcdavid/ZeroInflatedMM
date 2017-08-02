@@ -2,8 +2,9 @@ fxc_model_control = function(debug = 0, marginal = 1, ranefs = 2, prior_precisio
     list(pass_as_data = llist(debug, marginal, ranefs, prior_precision), other = llist(center))    
 }
 
-fxc_stan_control = function(iter, include = FALSE, pars = c('z_Tr_GNr', 'z_tau_Tr_G', 'L_Sigma_Tr_G'), ...){
-    llist(iter, include, pars, ...)   
+fxc_stan_control = function(include = FALSE, pars = c('z_Tr_GNr', 'z_tau_Tr_G', 'L_Sigma_Tr_G', 
+                                                      'theta_Tf_G'), ...){
+    llist(include, pars, ...)   
 }
 
 stan_modelfile = system.file('stan', 'zeroModels_bisect.stan', package='ZeroInflatedMM')
@@ -25,7 +26,10 @@ fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), 
     ## Extract control args
     control = model_control$other
     ## Need to fix zero-expression columns/groups
-    obj <- obj[MAST::freq(obj)>0,]
+    if(any(MAST::freq(obj)==0)){
+        warning('Null genes present; dropping')
+        obj <- obj[MAST::freq(obj)>0,]
+    }
     design_block <-  fixed_design_and_re(colData(obj), model)
     design <- design_block$design
     block <- design_block$block
@@ -77,24 +81,34 @@ fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), 
         fit <- do.call(rstan::vb, stan_control)
     }
     
-    contr_fixef <- which(colnames(design) %like% contrasts)
-    contr_ranef <- which(colnames(xr) %like% contrasts)
     fixef <- makeParTable(fit, 'beta_Tf_G')
+    fixef_interp = expand.grid(jname = colnames(design), comp = c('D', 'C'), stringsAsFactors = FALSE) %>% as.data.table()
+    fixef_interp[,j:=.I]
+    fixef = fixef %>% left_join(fixef_interp, by = 'j')
     ranef <- makeParTable(fit, 'tau_Tr_G')
+    ranef_interp = expand.grid(iname = colnames(xr), comp = c('D', 'C'), stringsAsFactors = FALSE) %>% as.data.table()
+    ranef_interp[,i:=.I]
+    ranef = ranef %>% left_join(ranef_interp, by = 'i')
     t2 <- proc.time()
     st <- t2-t1
     # Figure out how to get a bayesian FDR
-    bound <- fixef[j %in% c(2, 4),.(pval=pnorm(abs(Zrob), lower.tail=FALSE)*2), keyby=list(i,j)]
+    fixef_contr = fixef[jname %like% contrasts,]
+    if(any(contrasts %in% colnames(xr))) {
+      ranef_contr = ranef[iname %like% contrasts,]
+    } else{
+      ranef_contr = ranef[iname %like% '(Intercept)']   
+    }
+    bound = fixef_contr[,.(pval=pnorm(abs(Zrob), lower.tail=FALSE)*2)]
     bound[,fdr:=p.adjust(pval, method='fdr')]
-    bound <- bound[,.(minfdr=min(fdr)),keyby=i]
-    ret = FittedRanefScalar(fixef = fixef[j==2,mean], fixef_se=fixef[j==2,sd],
-                      fdr =bound[,minfdr],
-                      sd = ranef[i==1, mean],
+    #bound <- bound[,.(minfdr=min(fdr)),keyby=i]
+    ret = FittedRanefScalar(fixef = fixef_contr[,mean], fixef_se=fixef_contr[,sd],
+                      fdr =bound[,fdr],
+                      sd = ranef_contr[, mean],
                       walltime = st['elapsed'],
                       coretime = st['user.self'],
                       method = method,
                       obs_used = seq_len(ncol(obj)))
-    if(returnfit) return(structure(ret, fit=fit)) else ret
+    if(returnfit) return(structure(ret, fit = fit)) else ret
 }
 
 setOldClass('family')
@@ -107,7 +121,13 @@ setClass('FxCHM', contains = 'stanfit',
 
 ##' @importFrom stats gaussian binomial
 FxCHM = function(stanfit, design, ismarginal, family = gaussian(), family_zero = binomial(), formula){
-    new('FxCHM', stanfit, design=design, ismarginal = ismarginal, family = family, family_zero = family_zero)
+    new('FxCHM', stanfit, design = design, ismarginal = ismarginal, family = family, family_zero = family_zero)
+}
+
+fit = function(x){
+    y = attr(x, 'fit')   
+    assert_that(!is.null(y))
+    return(y)
 }
 
 #' @import data.table
@@ -135,4 +155,10 @@ nonParEstimate <- function(fit, contrast0, contrast1){
     # get posterior samples of means for each group
     list_of_draws <- extract(fit)
     print(names(list_of_draws))
+}
+
+compare_stanfits = function(fitx, fity){
+    sx = summary(fitx)$summary %>% melt()
+    sy = summary(fity)$summary %>% melt()
+    inner_join(sx, sy, by = c('Var1', 'Var2'))
 }
