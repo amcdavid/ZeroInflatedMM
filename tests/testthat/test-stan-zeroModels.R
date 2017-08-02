@@ -15,7 +15,7 @@ test_that('Can fit stylized model', {
 
 
 test_coefs = function(stan, expected, par, idx){
-    mean_se = summary(fit(stan), par = par)$summary[idx,]
+    mean_se = rstan::summary(fit(stan), par = par)$summary[idx,]
     Z = abs(mean_se[,'mean'] - expected)/mean_se[,'sd']
     expect_true(all(Z<2))
 }
@@ -32,8 +32,14 @@ test_that('Converge with large data', {
     y_rep[1,1] = 0 #to keep us off the parameter boundary
     obj = MAST::FromMatrix(y_rep, cData=cd_rep)
     obj = obj[,order(colData(obj)$g)]
-    test_conditional <- fit_FxCHM(obj, model, model_control = fxc_model_control(debug = 0, marginal = 0, ranefs = 0, center = FALSE), stan_control = fxc_stan_control(iter=500, cores = 4), contrasts = '(Intercept)', returnfit = TRUE, method = 'hmc')
+    sc = fxc_stan_control(iter=500, cores = 4)
+    test_conditional <- fit_FxCHM(obj, model, model_control = fxc_model_control(debug = 0, marginal = 0, ranefs = 0, center = FALSE), stan_control = sc, contrasts = '(Intercept)', returnfit = TRUE, method = 'hmc')
     test_coefs(test_conditional, c(1, 2, 4), 'beta_Tf_G', c(2, 4, 6))
+   
+    test_ranef = fit_FxCHM(obj, model, model_control = fxc_model_control(marginal = 0, ranefs = 2, center = FALSE), stan_control = sc, returnfit = TRUE, method = 'hmc', contrasts = '(Intercept)')
+    
+    expect_equal(t(Y), predict(fit(test_ranef), newdata = cData, type = 'marginal'), tol = .01)
+    
     test_marginal <- fit_FxCHM(obj, model, 
                                model_control = fxc_model_control(debug = 0, marginal = 1, ranefs = 0, center = FALSE), stan_control = fxc_stan_control(iter=500, cores = 4), contrasts = '(Intercept)', returnfit = TRUE, method = 'hmc')
     test_coefs(test_marginal, c(1, 1, 1), 'beta_Tf_G', c(2, 4, 6))

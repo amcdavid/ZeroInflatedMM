@@ -52,15 +52,25 @@ RandomDesignMatrix = function(Z, Z_list, f, cluster_idx){
     retval
 }
 
-fixed_design_and_re <- function(mf, model){
+fixed_design_and_re <- function(mf, model, match_blocks){
     mf = as.data.frame(mf)
-    lf <- lme4::lFormula(model, data=mf, control=lme4::lmerControl(check.formula.LHS = "ignore"))
+    lf <- lme4::lFormula(model, data=mf, control=lme4::lmerControl(check.formula.LHS = "ignore",
+                                                                   check.nobs.vs.nlev = "ignore",
+                                                                   check.nlev.gtr.1 = "ignore",
+                                                                   check.nobs.vs.nRE = 'ignore'
+                                                                   ))
     design <- lf$X
     assert_that(length(lf$reTrms$flist)==1)
     # we could/should use reTerms for the random design matrix; this would require using sparse matrices in stan
-    block <- as.factor(lf$reTrms$flist[[1]])
+    lev = if(!missing(match_blocks)) levels(match_blocks) else sort(unique(lf$reTrms$flist[[1]]))
+    if(!all(lf$reTrms$flist[[1]] %in% lev)) stop('Mismatch between levels provided in `match_blocks` and levels in data')
+    block <- factor(lf$reTrms$flist[[1]], levels = lev)
+    ## Left closed, right open intervals
+    if(!all(sort(block) == block)) stop("Currently cluster IDs must be sorted")
+    rr <- c(findInterval(seq_along(levels(block)), as.numeric(block), left.open = TRUE), length(block))+1
+    
     bars <- lme4::findbars(model)
     r_form <- as.formula(paste0('~', deparse(lme4::subbars(bars[[1]][[2]]))))
     r_design <- model.matrix(r_form, mf)
-    list(design=design, block=block, r_design=r_design)
+    list(design = design, block = block, r_design = r_design, rr = rr)
 }

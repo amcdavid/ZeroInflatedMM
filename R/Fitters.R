@@ -22,6 +22,7 @@ stan_modelfile = system.file('stan', 'zeroModels_bisect.stan', package='ZeroInfl
 #'
 #' @importFrom SummarizedExperiment colData rowData assay assays
 #' @importClassesFrom rstan stanfit
+#' @importFrom rstan summary
 fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), model_control= fxc_model_control(), method = c('hmc', 'vb'), returnfit = FALSE){
     ## Extract control args
     control = model_control$other
@@ -52,9 +53,8 @@ fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), 
     y <- t(yraw)[t(v)==1]
     assert_that(!any(is.na(y)))
     xr <- design_block$r_design
+    rr = design_block$rr
     
-    ## Left closed, right open intervals
-    rr <- c(findInterval(seq_along(levels(block)), as.numeric(block), left.open = TRUE), length(block))+1
     RIpos <- list()
     for (i in seq_len(G)){
         slice <- IposArr[[i]]
@@ -86,7 +86,7 @@ fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), 
         fit <- do.call(rstan::optimizing, stan_control)
         return(fit)
     }
-    
+    fit = FxCHM(fit, design_block, model_control, standat, model = model)
     fixef <- makeParTable(fit, 'beta_Tf_G')
     fixef_interp = expand.grid(jname = colnames(design), comp = c('D', 'C'), stringsAsFactors = FALSE) %>% as.data.table()
     fixef_interp[,j:=.I]
@@ -120,22 +120,53 @@ fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), 
 
 setOldClass('family')
 setClass('FxCHM', contains = 'stanfit', 
-         slots = list(design = 'data.frame', 
+         slots = list(design_re = 'list', 
                       ismarginal = 'logical', 
                       family = 'family',
                       family_zero = 'family',
-                      formula = 'formula'))
+                      model = 'formula',
+                      converged = 'logical',
+                      fixef_s_G_Tf_comp = 'array',
+                      ranef_s_Nr_G_comp_Tr = 'array',
+                      dims = 'list'
+                      ))
+
 
 ##' @importFrom stats gaussian binomial
-FxCHM = function(stanfit, design, ismarginal, family = gaussian(), family_zero = binomial(), formula){
-    new('FxCHM', stanfit, design = design, ismarginal = ismarginal, family = family, family_zero = family_zero)
+FxCHM = function(stanfit, design_re, model_control, standat, family = gaussian(), family_zero = binomial(), model){
+    ismarginal = model_control$pass_as_data$marginal==1
+    summ = rstan::summary(stanfit)$summary
+    if(is_sampling(stanfit)){
+        params = do.call(rbind, get_sampler_params(stanfit, inc_warmup = FALSE))
+        rhat = summ[,'Rhat']
+        #maybe we want to do this by gene?
+        converged = all(params[, 'divergent__']==0) & all(rhat[names(rhat) %like% 'beta_Tf_G'] < 1.1)
+    } else{
+        converged = NA
+    }
+    
+    dims = standat[c('G', 'Nr', 'Tf', 'Tr')]
+    # unpack the coefficients back into an array
+    fixef_s_G_Tf_comp = as.matrix(stanfit, par = 'beta_Tf_G') %>% array(., dim = c(nrow(.), dims$G, dims$Tf, 2), dimnames = list(draw = seq_len(nrow(.)), G = seq_len(dims$G), Tf = seq_len(dims$Tf), comp = c('D', 'C')))
+    ranef_s_Nr_G_comp_Tr = as.matrix(stanfit, 'beta_Tr_G_Nr') %>% array(., dim = c(nrow(.), dims$Nr, dims$G, 2, dims$Tr), dimnames = list(draw = seq_len(nrow(.)), Nr = seq_len(dims$Nr), G = seq_len(dims$G), comp = c('D', 'C'), Tr = seq_len(dims$Tr)))
+    dims$Ns = dim(ranef_s_G_Tf_comp)[1]
+    new('FxCHM', stanfit, design_re = design_re, ismarginal = ismarginal, family = family, family_zero = family_zero, model = model, converged = converged, fixef_s_G_Tf_comp = fixef_s_G_Tf_comp,  ranef_s_Nr_G_comp_Tr= ranef_s_Nr_G_comp_Tr, dims = dims)
+}
+
+is_sampling = function(fit){
+    fit@stan_args[[1]]$method=='sampling'   
+}
+
+getDims = function(fit){
+    fit@Dims
 }
 
 fit = function(x){
     y = attr(x, 'fit')   
-    assert_that(!is.null(y))
+    assert_that(!is.null(y), msg = 'No fit attribute')
     return(y)
 }
+
 
 #' @import data.table
 makeParTable <- function(fit, pname, rename){
@@ -158,14 +189,72 @@ makeParTable <- function(fit, pname, rename){
     dt[,Z:=mean/sd]
 }
 
-nonParEstimate <- function(fit, contrast0, contrast1){
-    # get posterior samples of means for each group
-    list_of_draws <- extract(fit)
-    print(names(list_of_draws))
+Drop = function (x, d) {
+    dim(x) <- dim(x)[-d]
+    x
 }
+
+marg_predict = function(object, newdata, re.form, ...){
+    pc = predict(object, newdata = newdata, component = 'C', type = 'response', re.form = re.form, ...)
+    pd = predict(object, newdata = newdata, component = 'D', type = 'response', re.form = re.form, ...)
+    return(pc *pd)
+}
+
+
+
+predict_FxCHM = function(object, newdata = NULL, type = c('link', 'response', 'marginal'), component = c('C', 'D'), re.form = NULL, index = NA, ...){
+    if(!is.null(newdata)){
+        design_block =  fixed_design_and_re(newdata, object@model, match_blocks = object@design_re$block)
+    } else{
+        design_block = object@design_re
+    }
+    type = match.arg(type, c('link', 'response', 'marginal'))
+    if(type == 'marginal') return(marg_predict(object, newdata, re.form, ...))
+    component = match.arg(component, choices = c("C", "D"))
+    # get the means in the desired form
+    Ns = object@dims$Ns
+    if(!(is.numeric(index) & index > 0 & index <= Ns)) index = seq_len(Ns)
+    
+    beta_G_Tf = colMeans(Drop(object@fixef_s_G_Tf_comp[index,,,component,drop=FALSE], 4), dims = 1)
+    G = object@dims$G
+    N = nrow(design_block$design)
+    eta = matrix(NA, nrow = N, ncol = G)
+    
+    if(is.null(re.form)){
+        beta_Nr_G_Tr = colMeans(Drop(object@ranef_s_Nr_G_comp_Tr[index,,,component,,drop=FALSE], 4), dims = 1)
+        block = design_block$block
+        rr = design_block$rr
+        xr = design_block$r_design
+    }
+    
+    for(g in seq_len(G)){
+        eta[,g] = design_block$design %*% beta_G_Tf[g,]
+        if(is.null(re.form)){
+            for(ri in seq_along(levels(design_block$block))){
+                idx = seq(rr[ri], rr[ri+1]-1)
+                eta[idx,g] = eta[idx,g] + xr[idx,,drop=FALSE] %*%beta_Nr_G_Tr[ri,g,]
+            }
+        }
+    }
+    if(type == 'response' & component == 'D'){
+        return(obj@family_zero$linkinv(eta))
+    }
+    return(eta)
+}
+
+setMethod('predict', 'FxCHM', predict_FxCHM)
 
 compare_stanfits = function(fitx, fity){
     sx = summary(fitx)$summary %>% melt()
     sy = summary(fity)$summary %>% melt()
     inner_join(sx, sy, by = c('Var1', 'Var2'))
+}
+
+get_marginal = function(obj, data0, data1, ni = 1){
+    pred = array(NA, dim = c(nrow(data1), obj@dims$G, ni))
+    for(i in seq_len(ni)){
+    if(ni==1) index = 0  else index = i
+    pred[i,,] = predict(obj, newdata =data1, type = 'marginal', index = index) -  predict(obj, newdata =data0, type = 'marginal', index = index)
+    }
+    pred
 }

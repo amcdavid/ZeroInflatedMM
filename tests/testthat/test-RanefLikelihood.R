@@ -15,9 +15,9 @@ test_that('Handle no intercept model', {
     expect_equivalent(parsed$design, model.matrix(~0, mf))
 })
 
-test_that('Handle scrambled covariates', {
+test_that('Error on out-of-order clusters', {
     mf <- data.frame(g=clusters, X)
     mf <- mf[sample(nrow(mf)),]
-    parsed <- fixed_design_and_re(mf, ~ (1|g))
-    expect_equivalent(parsed$block, mf$g)
+    expect_error(parsed <- fixed_design_and_re(mf, ~ (1|g)))
+    #expect_equivalent(parsed$block, mf$g)
 })
