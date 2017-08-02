@@ -10,7 +10,7 @@ test_that('Can compile model', {
 })
 
 test_that('Can fit stylized model', {
-    test <- fit_FxCHM(obj, model, model_control = fxc_model_control(debug = 2, marginal = 1, ranefs = 0, center = FALSE), stan_control = fxc_stan_control(iter=50, chains=1), contrasts = '(Intercept)', returnfit = TRUE)
+    test <- fit_FxCHM(obj, model, model_control = fxc_model_control(debug = 0, marginal = 1, ranefs = 0, center = FALSE), stan_control = fxc_stan_control(iter=50, chains=1), contrasts = '(Intercept)', returnfit = TRUE)
 })
 
 

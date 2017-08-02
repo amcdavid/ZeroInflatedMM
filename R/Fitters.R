@@ -1,5 +1,5 @@
-fxc_model_control = function(debug = 0, marginal = 1, ranefs = 2, prior_precision = 1, center = TRUE){
-    list(pass_as_data = llist(debug, marginal, ranefs, prior_precision), other = llist(center))    
+fxc_model_control = function(debug = 0, marginal = 1, ranefs = 2, prior_precision = 1, prior_precision_binomial = 1, center = TRUE){
+    list(pass_as_data = llist(debug, marginal, ranefs, prior_precision, prior_precision_binomial), other = llist(center))    
 }
 
 fxc_stan_control = function(include = FALSE, pars = c('z_Tr_GNr', 'z_tau_Tr_G', 'L_Sigma_Tr_G', 

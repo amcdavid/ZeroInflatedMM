@@ -42,6 +42,8 @@ data {
   
   // how adaptive are the random effects?
     real<lower=0> prior_precision;
+  // how much do we constrain the binomial
+    real<lower=0> prior_precision_binomial;
 }
 
 
@@ -59,11 +61,11 @@ transformed data {
   vector[2*Tf] sigma_Tf;
   vector[2*Tr] zero_Tr = rep_vector(0.0, Tr*2);
   if(Tf>0){
-    sigma_Tf[1] = fixef_intercept_sigma_default;
+    sigma_Tf[1] = fixef_intercept_sigma_default/prior_precision_binomial;
     sigma_Tf[c_Tf] = fixef_intercept_sigma_default;
   }
   if(Tf>1){
-    sigma_Tf[2:Tf] = rep_vector(fixef_sigma_default, Tf-1);
+    sigma_Tf[2:Tf] = rep_vector(fixef_sigma_default/prior_precision_binomial, Tf-1);
     sigma_Tf[(c_Tf+1):(2*Tf)] = rep_vector(fixef_sigma_default, Tf-1);
   }
  
@@ -98,7 +100,10 @@ transformed parameters {
     matrix<lower=0>[2*Tr,G] tau_Tr_G;
 
     
-     for(i in 1:(2*Tr)){
+     for(i in 1:Tr){
+        tau_Tr_G[i,:] = z_tau_Tr_G[i,:]*sigma_tau[i]/prior_precision_binomial+mu_tau[i];
+    }
+    for(i in c_Tr:(2*Tr)){
         tau_Tr_G[i,:] = z_tau_Tr_G[i,:]*sigma_tau[i]+mu_tau[i];
     }
     for(g in 1:G){
@@ -138,7 +143,7 @@ model {
   to_vector(z_Tr_GNr) ~ normal(0,1);
   
   //Prior for random effect scale
-  mu_tau ~ normal(0, ranef_sigma_default);
+  mu_tau ~ normal(.5, ranef_sigma_default);
   sigma_tau ~ normal(0, ranef_sigma_default);
   to_vector(z_tau_Tr_G) ~ normal(0, 1);
   
@@ -212,8 +217,8 @@ model {
         // vector[num_elements(etaC)] EV;
         // EV = exp(etaD[ipos]);
       if(debug > 1)  print("etaC: ", etaC[1:min_n], ". etaD: ", etaD[ipos[1:min_n]]);
-      // etaC = E(U)*E(V)
-      // 1 - P(V) = (1 + eD)/(1+eD) - eD/(1+eD) = 1/(1+eD) = (e(-d))/(
+      // etaC = XB = etaC' * P(V)
+      // etaC' = etaC/P(V) 
       etaC = etaC .* (1+exp(-etaD[ipos]));
       if(debug > 1)  print("etaC: ", etaC[1:min_n]);
 
