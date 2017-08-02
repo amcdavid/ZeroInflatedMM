@@ -79,22 +79,29 @@ fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), 
         object <- stan_model(stan_modelfile)
         stan_control <- c(stan_control, list(object=object, data=standat))
         fit <- do.call(rstan::vb, stan_control)
+    } else if(method=='optimizing'){
+        object <- stan_model(stan_modelfile)
+        stan_control = stan_control[setdiff(names(stan_control), c('include', 'pars'))]
+        stan_control <- c(stan_control, list(object=object, data=standat))
+        fit <- do.call(rstan::optimizing, stan_control)
+        return(fit)
     }
     
     fixef <- makeParTable(fit, 'beta_Tf_G')
     fixef_interp = expand.grid(jname = colnames(design), comp = c('D', 'C'), stringsAsFactors = FALSE) %>% as.data.table()
     fixef_interp[,j:=.I]
-    fixef = fixef %>% left_join(fixef_interp, by = 'j')
+    fixef = dplyr::left_join(fixef, fixef_interp, by = 'j')
     ranef <- makeParTable(fit, 'tau_Tr_G')
     ranef_interp = expand.grid(iname = colnames(xr), comp = c('D', 'C'), stringsAsFactors = FALSE) %>% as.data.table()
     ranef_interp[,i:=.I]
-    ranef = ranef %>% left_join(ranef_interp, by = 'i')
+    ranef = left_join(ranef, ranef_interp, by = 'i')
     t2 <- proc.time()
     st <- t2-t1
     # Figure out how to get a bayesian FDR
-    fixef_contr = fixef[jname %like% contrasts,]
+
+    fixef_contr = fixef[jname %like% contrasts & comp=='C',]
     if(any(contrasts %in% colnames(xr))) {
-      ranef_contr = ranef[iname %like% contrasts,]
+      ranef_contr = ranef[iname %like% contrasts & comp == 'D',]
     } else{
       ranef_contr = ranef[iname %like% '(Intercept)']   
     }
