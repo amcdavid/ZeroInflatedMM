@@ -58,10 +58,6 @@ transformed data {
   
   vector[2*Tf] sigma_Tf;
   vector[2*Tr] zero_Tr = rep_vector(0.0, Tr*2);
-  matrix[N, Tf] Q_ast;
-  matrix[Tf, Tf] R_ast;
-  matrix[Tf, Tf] R_ast_inverse;
-  matrix[2*Tf, 2*Tf] R_ast_inverse_block;
   if(Tf>0){
     sigma_Tf[1] = fixef_intercept_sigma_default;
     sigma_Tf[c_Tf] = fixef_intercept_sigma_default;
@@ -71,21 +67,11 @@ transformed data {
     sigma_Tf[(c_Tf+1):(2*Tf)] = rep_vector(fixef_sigma_default, Tf-1);
   }
  
- // Take QR decomp of fixed effects
- // Note this is only orthogonal for discrete component, but nothing to be done about this...
- 
-      // thin and scale the QR decomposition
-  Q_ast = qr_Q(x)[, 1:Tf] * sqrt(N - 1);
-  R_ast = qr_R(x)[1:Tf, ] / sqrt(N - 1);
-  R_ast_inverse = inverse(R_ast);
-  R_ast_inverse_block = append_row(append_col(R_ast_inverse, rep_matrix(0, Tf, Tf)),
-                                   append_col(rep_matrix(0, Tf, Tf), R_ast_inverse));
 }
-    
 
 parameters {
   //matrix[2*Tf,G] beta_Tf_G; //fixed effect regression coefficients
-  vector[2*Tf] theta_Tf_G[G]; //fixed effect regression coefficients
+  vector[2*Tf] beta_Tf_G[G]; //fixed effect regression coefficients
   
   vector<lower=0>[G] sigmaC_G; //dispersion
   // real<lower=0> gamaC; //hyper dispersion
@@ -180,9 +166,9 @@ model {
     }
 
     //old style
-    theta_Tf_G[g] ~ normal(mu_Tf, sigma_Tf);
-    etaD = Q_ast*theta_Tf_G[g][1:Tf];
-    etaC = (Q_ast[ipos,:]*theta_Tf_G[g][c_Tf:(2*Tf)]);
+    beta_Tf_G[g] ~ normal(mu_Tf, sigma_Tf);
+    etaD = x*beta_Tf_G[g][1:Tf];
+    etaC = (x[ipos,:]*beta_Tf_G[g][c_Tf:(2*Tf)]);
     
     
     //etaD = x*beta_Tf_G[1:Tf,g];
@@ -228,7 +214,7 @@ model {
       if(debug > 1)  print("etaC: ", etaC[1:min_n], ". etaD: ", etaD[ipos[1:min_n]]);
       // etaC = E(U)*E(V)
       // 1 - P(V) = (1 + eD)/(1+eD) - eD/(1+eD) = 1/(1+eD) = (e(-d))/(
-      etaC = etaC ./ (1+exp(etaD[ipos]));
+      etaC = etaC .* (1+exp(-etaD[ipos]));
       if(debug > 1)  print("etaC: ", etaC[1:min_n]);
 
     }
@@ -237,13 +223,7 @@ model {
     y[iposStart:iposEnd] ~ normal(etaC, sigmaC_G[g]);
   }
 }
-
 generated quantities {
-  corr_matrix[2*Tr] Sigma_Tr;
-  vector[2*Tf] beta_Tf_G[G]; //fixed effect regression coefficients
+  corr_matrix[2*Tr] Sigma_Tr; 
   Sigma_Tr = multiply_lower_tri_self_transpose(L_Sigma_Tr_G);
-  
-  for(g in 1:G){
-    beta_Tf_G[g] = R_ast_inverse_block * theta_Tf_G[g]; // coefficients on x
-  }
 }
