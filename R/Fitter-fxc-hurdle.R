@@ -7,7 +7,7 @@ fxc_stan_control = function(include = FALSE, pars = c('z_Tr_GNr', 'z_tau_Tr_G', 
     llist(include, pars, ...)   
 }
 
-stan_modelfile = system.file('stan', 'zeroModels_bisect.stan', package='ZeroInflatedMM')
+stan_modelfile = system.file('stan', 'zeroModels.stan', package='ZeroInflatedMM')
 
 
 #' Fit a zero-inflated hierarchical mixed model

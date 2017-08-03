@@ -143,7 +143,7 @@ model {
   to_vector(z_Tr_GNr) ~ normal(0,1);
   
   //Prior for random effect scale
-  mu_tau ~ normal(.5, ranef_sigma_default);
+  mu_tau ~ normal(0, ranef_sigma_default);
   sigma_tau ~ normal(0, ranef_sigma_default);
   to_vector(z_tau_Tr_G) ~ normal(0, 1);
   
