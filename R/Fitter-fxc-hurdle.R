@@ -23,7 +23,7 @@ stan_modelfile = system.file('stan', 'zeroModels_bisect.stan', package='ZeroInfl
 #' @importFrom SummarizedExperiment colData rowData assay assays
 #' @importClassesFrom rstan stanfit
 #' @importFrom rstan summary
-fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), model_control= fxc_model_control(), method = c('hmc', 'vb'), returnfit = FALSE){
+fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), model_control= fxc_model_control(), method = c('hmc', 'vb'), returnfit = FALSE, data0, data1){
     ## Extract control args
     control = model_control$other
     ## Need to fix zero-expression columns/groups
@@ -87,30 +87,20 @@ fit_FxCHM <- function(obj, model, contrasts, stan_control = fxc_stan_control(), 
         return(fit)
     }
     fit = FxCHM(fit, design_block, model_control, standat, model = model)
-    fixef <- makeParTable(fit, 'beta_Tf_G')
-    fixef_interp = expand.grid(jname = colnames(design), comp = c('D', 'C'), stringsAsFactors = FALSE) %>% as.data.table()
-    fixef_interp[,j:=.I]
-    fixef = dplyr::left_join(fixef, fixef_interp, by = 'j')
-    ranef <- makeParTable(fit, 'tau_Tr_G')
-    ranef_interp = expand.grid(iname = colnames(xr), comp = c('D', 'C'), stringsAsFactors = FALSE) %>% as.data.table()
-    ranef_interp[,i:=.I]
-    ranef = left_join(ranef, ranef_interp, by = 'i')
     t2 <- proc.time()
     st <- t2-t1
+    if(missing(data0)) return(fit)
+    if(missing(data1)){
+        retval = predict(fit, newdata = data0, type = 'marginal')
+    } else {
+        retval = get_marginal(fit, data0, data1, ni = min(100, fit@dims$Ns))
+    }
+
     # Figure out how to get a bayesian FDR
 
-    fixef_contr = fixef[jname %like% contrasts & comp=='C',]
-    if(any(contrasts %in% colnames(xr))) {
-      ranef_contr = ranef[iname %like% contrasts & comp == 'D',]
-    } else{
-      ranef_contr = ranef[iname %like% '(Intercept)']   
-    }
-    bound = fixef_contr[,.(pval=pnorm(abs(Zrob), lower.tail=FALSE)*2)]
-    bound[,fdr:=p.adjust(pval, method='fdr')]
-    #bound <- bound[,.(minfdr=min(fdr)),keyby=i]
-    ret = FittedRanefScalar(fixef = fixef_contr[,mean], fixef_se=fixef_contr[,sd],
-                      fdr =bound[,fdr],
-                      sd = ranef_contr[, mean],
+    ret = FittedRanefScalar(fixef = retval$fixef, fixef_se=retval$fixef_se,
+                      fdr = rep(1, nrow(retval)),
+                      sd = retval$sd,
                       walltime = st['elapsed'],
                       coretime = st['user.self'],
                       method = method,
@@ -149,7 +139,7 @@ FxCHM = function(stanfit, design_re, model_control, standat, family = gaussian()
     # unpack the coefficients back into an array
     fixef_s_G_Tf_comp = as.matrix(stanfit, par = 'beta_Tf_G') %>% array(., dim = c(nrow(.), dims$G, dims$Tf, 2), dimnames = list(draw = seq_len(nrow(.)), G = seq_len(dims$G), Tf = seq_len(dims$Tf), comp = c('D', 'C')))
     ranef_s_Nr_G_comp_Tr = as.matrix(stanfit, 'beta_Tr_G_Nr') %>% array(., dim = c(nrow(.), dims$Nr, dims$G, 2, dims$Tr), dimnames = list(draw = seq_len(nrow(.)), Nr = seq_len(dims$Nr), G = seq_len(dims$G), comp = c('D', 'C'), Tr = seq_len(dims$Tr)))
-    dims$Ns = dim(ranef_s_G_Tf_comp)[1]
+    dims$Ns = dim(fixef_s_G_Tf_comp)[1]
     new('FxCHM', stanfit, design_re = design_re, ismarginal = ismarginal, family = family, family_zero = family_zero, model = model, converged = converged, fixef_s_G_Tf_comp = fixef_s_G_Tf_comp,  ranef_s_Nr_G_comp_Tr= ranef_s_Nr_G_comp_Tr, dims = dims)
 }
 
@@ -162,7 +152,8 @@ getDims = function(fit){
 }
 
 fit = function(x){
-    y = attr(x, 'fit')   
+    if(inherits(x, 'FxCHM')) return(x)
+    y = attr(x, 'fit')
     assert_that(!is.null(y), msg = 'No fit attribute')
     return(y)
 }
@@ -202,18 +193,18 @@ marg_predict = function(object, newdata, re.form, ...){
 
 
 
-predict_FxCHM = function(object, newdata = NULL, type = c('link', 'response', 'marginal'), component = c('C', 'D'), re.form = NULL, index = NA, ...){
+predict_FxCHM = function(object, newdata = NULL, type = c('link', 'response', 'marginal'), component = c('C', 'D'), re.form = NULL, index = 0, ...){
     if(!is.null(newdata)){
         design_block =  fixed_design_and_re(newdata, object@model, match_blocks = object@design_re$block)
     } else{
         design_block = object@design_re
     }
     type = match.arg(type, c('link', 'response', 'marginal'))
-    if(type == 'marginal') return(marg_predict(object, newdata, re.form, ...))
+    if(type == 'marginal') return(marg_predict(object, newdata, re.form, index = index, ...))
     component = match.arg(component, choices = c("C", "D"))
     # get the means in the desired form
     Ns = object@dims$Ns
-    if(!(is.numeric(index) & index > 0 & index <= Ns)) index = seq_len(Ns)
+    if(index < 1 || index > Ns) index = seq_len(Ns)
     
     beta_G_Tf = colMeans(Drop(object@fixef_s_G_Tf_comp[index,,,component,drop=FALSE], 4), dims = 1)
     G = object@dims$G
@@ -231,13 +222,15 @@ predict_FxCHM = function(object, newdata = NULL, type = c('link', 'response', 'm
         eta[,g] = design_block$design %*% beta_G_Tf[g,]
         if(is.null(re.form)){
             for(ri in seq_along(levels(design_block$block))){
-                idx = seq(rr[ri], rr[ri+1]-1)
-                eta[idx,g] = eta[idx,g] + xr[idx,,drop=FALSE] %*%beta_Nr_G_Tr[ri,g,]
+                if(rr[ri]< (rr[ri+1]-1)){
+                    idx = seq(rr[ri], rr[ri+1]-1)
+                    eta[idx,g] = eta[idx,g] + xr[idx,,drop=FALSE] %*%beta_Nr_G_Tr[ri,g,]
+                }
             }
         }
     }
     if(type == 'response' & component == 'D'){
-        return(obj@family_zero$linkinv(eta))
+        return(object@family_zero$linkinv(eta))
     }
     return(eta)
 }
@@ -254,7 +247,17 @@ get_marginal = function(obj, data0, data1, ni = 1){
     pred = array(NA, dim = c(nrow(data1), obj@dims$G, ni))
     for(i in seq_len(ni)){
     if(ni==1) index = 0  else index = i
-    pred[i,,] = predict(obj, newdata =data1, type = 'marginal', index = index) -  predict(obj, newdata =data0, type = 'marginal', index = index)
+    pred[,,i] = predict(obj, newdata =data1, type = 'marginal', index = index) -  predict(obj, newdata =data0, type = 'marginal', index = index)
     }
-    pred
+    #averaged change
+    meaneffect_sim = apply(pred, 2:3, mean)
+    meaneffect = rowMeans(meaneffect_sim)
+    
+    se_mean = apply(pred, 2, sd)
+    cluster_sd = apply((aperm(pred, c(2, 1, 3)) - meaneffect)^2
+                        ,1, mean)^.5
+    #should be equal to zero if the array broadcasting is working
+    assert_that(all(abs(apply((aperm(pred, c(2, 1, 3)) - meaneffect) ,1, mean))<1e-4))
+    
+    data.table(fixef = meaneffect, fixef_se = se_mean, sd = cluster_sd)
 }

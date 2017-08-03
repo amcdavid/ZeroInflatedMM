@@ -1,24 +1,30 @@
 Package: ZeroInflatedMM
 Title: Multi-level models and simulations for zero-inflated data
-Version: 0.10
+Version: 0.20
 Authors@R: person("Andrew", "McDavid", email = "Andrew_McDavid@urmc.rochester.edu", role = c("aut", "cre"))
 Description: Facilities to simulate and fit zero-inflated data.
-Depends: R (>= 3.4.0)
+Depends: rstan
 License: GPL (>= 2)
 Encoding: UTF-8
 LazyData: true
-Suggests: testthat
+Suggests: testthat,
+    limma,
+    edgeR,
+    blme,
+    lme4
 Imports: assertthat,
     mvtnorm,
     stats,
     Hmisc,
     MAST,
     SummarizedExperiment,
-    data.table
-Depends: rstan
+    data.table,
+    biobroom
 RoxygenNote: 6.0.1
 Collate: 
     'FittedRanef.R'
+    'Fitter-blmer-hurdle.R'
+    'Fitter-limma.R'
     'Fitters.R'
     'ObsLikelihood.R'
     'HyperParams.R'

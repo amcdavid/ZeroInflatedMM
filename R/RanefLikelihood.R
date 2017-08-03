@@ -57,7 +57,8 @@ fixed_design_and_re <- function(mf, model, match_blocks){
     lf <- lme4::lFormula(model, data=mf, control=lme4::lmerControl(check.formula.LHS = "ignore",
                                                                    check.nobs.vs.nlev = "ignore",
                                                                    check.nlev.gtr.1 = "ignore",
-                                                                   check.nobs.vs.nRE = 'ignore'
+                                                                   check.nobs.vs.nRE = 'ignore',
+                                                                   check.rankX = 'ignore'
                                                                    ))
     design <- lf$X
     assert_that(length(lf$reTrms$flist)==1)
