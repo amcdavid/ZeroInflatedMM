@@ -19,13 +19,15 @@ Imports: assertthat,
     MAST,
     SummarizedExperiment,
     data.table,
-    biobroom
+    biobroom,
+    dplyr,
+    reshape2
 RoxygenNote: 6.0.1
 Collate: 
     'FittedRanef.R'
     'Fitter-blmer-hurdle.R'
+    'Fitter-fxc-hurdle.R'
     'Fitter-limma.R'
-    'Fitters.R'
     'ObsLikelihood.R'
     'HyperParams.R'
     'RanefLikelihood.R'

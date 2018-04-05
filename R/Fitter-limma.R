@@ -1,4 +1,5 @@
 ##'@import biobroom
+##'@importFrom dplyr '%>%'
 limma_frs <- function(obj, model, contrasts){
     design_block <-  fixed_design_and_re(colData(obj), model)
     design <- design_block$design
